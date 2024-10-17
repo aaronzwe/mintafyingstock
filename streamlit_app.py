@@ -71,9 +71,18 @@ def analyze_sentiment(texts):
     return [sia.polarity_scores(text)['compound'] for text in texts]
 
 def get_stock_news(symbol):
-    ticker = yf.Ticker(symbol)
-    news = ticker.news
-    return news
+    try:
+        ticker = yf.Ticker(symbol)
+        news = ticker.news
+        
+        if news is None or len(news) == 0:
+            return None
+        
+        return news
+    except Exception as e:
+        st.write(f"Error fetching news: {str(e)}")
+        return None
+
 
 def main():
     page = st.sidebar.radio("Navigation", ["Stock Prediction", "Live Market", "Market Sentiment"])
@@ -183,47 +192,54 @@ def market_sentiment_page():
         
         news = get_stock_news(selected_stock)
         
-        if news:
-            # Convert news to DataFrame
-            df = pd.DataFrame(news)
-            
-            # Handle the columns based on actual data
-            if 'providerPublishTime' in df.columns:
-                df['date'] = pd.to_datetime(df['providerPublishTime'], unit='s')
-            else:
-                st.write("No 'providerPublishTime' column found. Please check the structure of the news data.")
-                return
-            
-            df = df[df['date'] >= datetime.now() - timedelta(days=30)]
-
-            # Handle the 'title' column
-            if 'title' not in df.columns:
-                st.write("No 'title' column found. Please check the structure of the news data.")
-                return
-            
-            df['sentiment'] = analyze_sentiment(df['title'])
-            
-            st.write("Sentiment Data for the past month:")
-            st.dataframe(df[['title', 'date', 'sentiment', 'link']])
-
-            fig_pie = go.Figure(data=[go.Pie(labels=['Positive', 'Neutral', 'Negative'],
-                                             values=[(df['sentiment'] > 0.2).sum(),
-                                                     ((df['sentiment'] >= -0.2) & (df['sentiment'] <= 0.2)).sum(),
-                                                     (df['sentiment'] < -0.2).sum()],
-                                             title='Sentiment Distribution')])
-            st.plotly_chart(fig_pie, use_container_width=True)
-            
-            fig_bar = go.Figure(data=[go.Bar(x=df['date'], y=df['sentiment'])])
-            fig_bar.update_layout(title='Sentiment Scores Over Time', xaxis_title='Date', yaxis_title='Sentiment Score')
-            st.plotly_chart(fig_bar, use_container_width=True)
-            
-            average_sentiment = df['sentiment'].mean()
-            recommendation = "Buy" if average_sentiment > 0.2 else "Sell" if average_sentiment < -0.2 else "Hold"
-            
-            st.write(f"Average Sentiment Score: {average_sentiment:.2f}")
-            st.write(f"Recommendation: {recommendation}")
-        else:
+        if news is None or len(news) == 0:
             st.write("No news articles found for the selected stock in the past month.")
+            return
+        
+        # Proceed if news is available
+        df = pd.DataFrame(news)
+        
+        if 'providerPublishTime' in df.columns:
+            df['date'] = pd.to_datetime(df['providerPublishTime'], unit='s')
+        else:
+            st.write("No 'providerPublishTime' column found. Please check the structure of the news data.")
+            return
+        
+        df = df[df['date'] >= datetime.now() - timedelta(days=30)]
+        
+        if df.empty:
+            st.write("No relevant news articles found in the past month.")
+            return
+        
+        if 'title' not in df.columns:
+            st.write("No 'title' column found. Please check the structure of the news data.")
+            return
+        
+        # Analyze sentiment of news titles
+        df['sentiment'] = analyze_sentiment(df['title'])
+        
+        st.write("Sentiment Data for the past month:")
+        st.dataframe(df[['title', 'date', 'sentiment', 'link']])
+        
+        # Sentiment Distribution Pie Chart
+        fig_pie = go.Figure(data=[go.Pie(labels=['Positive', 'Neutral', 'Negative'],
+                                         values=[(df['sentiment'] > 0.2).sum(),
+                                                 ((df['sentiment'] >= -0.2) & (df['sentiment'] <= 0.2)).sum(),
+                                                 (df['sentiment'] < -0.2).sum()])])
+        fig_pie.update_layout(title='Sentiment Distribution')
+        st.plotly_chart(fig_pie, use_container_width=True)
+        
+        # Sentiment Scores Over Time Bar Chart
+        fig_bar = go.Figure(data=[go.Bar(x=df['date'], y=df['sentiment'])])
+        fig_bar.update_layout(title='Sentiment Scores Over Time', xaxis_title='Date', yaxis_title='Sentiment Score')
+        st.plotly_chart(fig_bar, use_container_width=True)
+        
+        # Average Sentiment and Recommendation
+        average_sentiment = df['sentiment'].mean()
+        recommendation = "Buy" if average_sentiment > 0.2 else "Sell" if average_sentiment < -0.2 else "Hold"
+        
+        st.write(f"Average Sentiment Score: {average_sentiment:.2f}")
+        st.write(f"Recommendation: {recommendation}")
 
 if __name__ == "__main__":
     main()
