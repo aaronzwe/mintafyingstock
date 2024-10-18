@@ -16,13 +16,6 @@ import numpy as np
 # Set page config
 st.set_page_config(page_title="Stock Analysis App", layout="wide")
 
-# Add Telegram Mini App script
-components.html(
-    """
-    <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    """,
-    height=0
-)
 
 # Ensure you have the VADER lexicon downloaded
 nltk.download('vader_lexicon', quiet=True)
