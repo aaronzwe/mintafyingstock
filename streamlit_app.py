@@ -41,7 +41,7 @@ def fetch_stock_data(symbol, period='5y', interval='1d'):
     except Exception as e:
         st.write(f"Error fetching stock data for {symbol}: {str(e)}")
         return None
-
+@st.cache_data(ttl=3600)
 def train_lstm_model(X_train, y_train, X_test, y_test):
     """Train an LSTM model."""
     model = Sequential([
