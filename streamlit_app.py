@@ -1,21 +1,18 @@
-import yfinance as yf
+import os
 from datetime import datetime, timedelta
 import nltk
 from nltk.sentiment import SentimentIntensityAnalyzer
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
-import streamlit.components.v1 as components
+import numpy as np
 from sklearn.preprocessing import MinMaxScaler
 import tensorflow as tf
 from keras.models import Sequential
 from keras.layers import Dense, LSTM
-import numpy as np
-
 
 # Set page config
 st.set_page_config(page_title="Stock Analysis App", layout="wide")
-
 
 # Ensure you have the VADER lexicon downloaded
 nltk.download('vader_lexicon', quiet=True)
@@ -59,23 +56,20 @@ def create_ds(dataset, step):
         Ytrain.append(dataset[i + step, 0])
     return np.array(Xtrain), np.array(Ytrain)
 
+# Load news data from the CSV file
+@st.cache_data(ttl=3600)
+def load_news_data_from_csv(symbol):
+    try:
+        file_path = os.path.join("resources", f"BP_stock_data.csv")
+        news_df = pd.read_csv(file_path)
+        return news_df
+    except FileNotFoundError:
+        st.error(f"No CSV file found for {symbol}. Make sure the file exists in the 'resources' folder.")
+        return None
+
 @st.cache_data(ttl=3600)
 def analyze_sentiment(texts):
     return [sia.polarity_scores(text)['compound'] for text in texts]
-
-def get_stock_news(symbol):
-    try:
-        ticker = yf.Ticker(symbol)
-        news = ticker.news
-        
-        if news is None or len(news) == 0:
-            return None
-        
-        return news
-    except Exception as e:
-        st.write(f"Error fetching news: {str(e)}")
-        return None
-
 
 def main():
     page = st.sidebar.radio("Navigation", ["Stock Prediction", "Live Market", "Market Sentiment"])
@@ -183,56 +177,44 @@ def market_sentiment_page():
     if selected_stock:
         st.write(f"Analyzing sentiment for: {stock_symbols[selected_stock]} ({selected_stock})")
         
-        news = get_stock_news(selected_stock)
+        # Load news data from the CSV file
+        news_df = load_news_data_from_csv(selected_stock)
         
-        if news is None or len(news) == 0:
-            st.write("No news articles found for the selected stock in the past month.")
+        if news_df is None:
+            st.write("No news data available.")
             return
         
-        # Proceed if news is available
-        df = pd.DataFrame(news)
-        
-        if 'providerPublishTime' in df.columns:
-            df['date'] = pd.to_datetime(df['providerPublishTime'], unit='s')
-        else:
-            st.write("No 'providerPublishTime' column found. Please check the structure of the news data.")
-            return
-        
-        df = df[df['date'] >= datetime.now() - timedelta(days=30)]
-        
-        if df.empty:
-            st.write("No relevant news articles found in the past month.")
-            return
-        
-        if 'title' not in df.columns:
-            st.write("No 'title' column found. Please check the structure of the news data.")
+        # Ensure the CSV has a 'title' column for sentiment analysis
+        if 'title' not in news_df.columns:
+            st.write("No 'title' column found. Please check the structure of the CSV data.")
             return
         
         # Analyze sentiment of news titles
-        df['sentiment'] = analyze_sentiment(df['title'])
+        news_df['sentiment'] = analyze_sentiment(news_df['title'])
         
-        st.write("Sentiment Data for the past month:")
-        st.dataframe(df[['title', 'date', 'sentiment', 'link']])
+        st.write("Sentiment Data:")
+        st.dataframe(news_df[['title', 'sentiment', 'link']])
         
         # Sentiment Distribution Pie Chart
         fig_pie = go.Figure(data=[go.Pie(labels=['Positive', 'Neutral', 'Negative'],
-                                         values=[(df['sentiment'] > 0.2).sum(),
-                                                 ((df['sentiment'] >= -0.2) & (df['sentiment'] <= 0.2)).sum(),
-                                                 (df['sentiment'] < -0.2).sum()])])
+                                         values=[(news_df['sentiment'] > 0.2).sum(),
+                                                 ((news_df['sentiment'] >= -0.2) & (news_df['sentiment'] <= 0.2)).sum(),
+                                                 (news_df['sentiment'] < -0.2).sum()])])
         fig_pie.update_layout(title='Sentiment Distribution')
         st.plotly_chart(fig_pie, use_container_width=True)
         
-        # Sentiment Scores Over Time Bar Chart
-        fig_bar = go.Figure(data=[go.Bar(x=df['date'], y=df['sentiment'])])
-        fig_bar.update_layout(title='Sentiment Scores Over Time', xaxis_title='Date', yaxis_title='Sentiment Score')
+        # Sentiment Scores Bar Chart
+        fig_bar = go.Figure(data=[go.Bar(x=news_df.index, y=news_df['sentiment'])])
+        fig_bar.update_layout(title='Sentiment Scores', xaxis_title='News Index', yaxis_title='Sentiment Score')
         st.plotly_chart(fig_bar, use_container_width=True)
         
         # Average Sentiment and Recommendation
-        average_sentiment = df['sentiment'].mean()
+        average_sentiment = news_df['sentiment'].mean()
         recommendation = "Buy" if average_sentiment > 0.2 else "Sell" if average_sentiment < -0.2 else "Hold"
         
         st.write(f"Average Sentiment Score: {average_sentiment:.2f}")
         st.write(f"Recommendation: {recommendation}")
+
 
 if __name__ == "__main__":
     main()
